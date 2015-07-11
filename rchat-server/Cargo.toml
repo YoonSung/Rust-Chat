@@ -1,0 +1,8 @@
+[package]
+name = "rchat-server"
+version = "0.1.0"
+authors = ["Yoonsung <lvev9925@naver.com>"]
+
+[dependencies]
+bincode = "*"
+rustc-serialize = "*"

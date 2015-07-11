@@ -1,0 +1,4 @@
+[package]
+name = "rchat-client"
+version = "0.1.0"
+authors = ["Yoonsung <lvev9925@naver.com>"]
