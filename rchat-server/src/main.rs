@@ -44,8 +44,7 @@ extern crate rand;
 use rand::distributions::{IndependentSample, Range};
 
 struct Database {
-    groups : HashMap<u64, Group>,
-    users : HashMap<u8, User> 
+    groups : HashMap<u64, Group>, 
 }
 
 struct Group {
@@ -55,7 +54,7 @@ struct Group {
 
 struct User {
     name : String,
-    id : u64,
+    id : u8,
     socket : TcpStream
 }
 
@@ -65,10 +64,15 @@ fn convert_to_array <'a, T: AsRef<[u8]>>(s: &'a T) -> &'a [u8] {
 }
 */
 
-fn generate_random_user_key() -> u64 {
+fn generate_random_user_key() -> u8 {
+    let range = Range::new(u8::min_value(), u8::max_value());
+    let mut rng = rand::thread_rng();
+    range.ind_sample(&mut rng)
+}
+
+fn generate_random_group_key() -> u64 {
     let range = Range::new(u64::min_value(), u64::max_value());
     let mut rng = rand::thread_rng();
-    
     range.ind_sample(&mut rng)
 }
 
@@ -80,8 +84,7 @@ fn main() {
     };
     
     let database = Database {
-        groups : HashMap::new(),
-        users : HashMap::new()
+        groups : HashMap::new()
     };
 
     let listener = TcpListener::bind("127.0.0.1:9000").unwrap();
@@ -97,7 +100,7 @@ fn main() {
                             name : "test".to_string(),
                             id : generate_random_user_key(),
                             socket : stream.try_clone().unwrap()
-                    };
+                    };    
                     
                     
                 
