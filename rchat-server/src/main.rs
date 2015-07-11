@@ -101,26 +101,27 @@ fn main() {
                             id : generate_random_user_key(),
                             socket : stream.try_clone().unwrap()
                     };    
-                    
-                    
                 
-                    thread::spawn(move|| {
-                        let mut buffer : [u8; 1024  ] = [0; 1024];
-                        stream.read(&mut buffer); // ignore here too
-                        
-                        
-                        let prot = to_protocol(&buffer);
-                        
-                        println!("protocol : {:?}", prot);
+                    let child = thread::spawn(move|| {
+                        loop {
+                            let mut buffer : [u8; 1024  ] = [0; 1024];
+                            stream.read(&mut buffer); // ignore here too
+                            
+                            
+                            let prot = to_protocol(&buffer);
+                            
+                            //println!("protocol : {:?}", prot);
+                            println!("채팅 : {:?}", prot.body);
+                        }
                     });
                     
-                }
+                    child.join();
+                },
                 Err(e) => { /* connection failed */ }
             }
         }
     }
-    
-    
+        
     // close the socket server
     // drop(listener);
 }
@@ -129,17 +130,42 @@ fn main() {
 // --------------------------------------------------------------------------------------- Client
 use std::io::prelude::*;
 //use std::net::TcpStream;
+use std::io;
 
 #[test]
 fn client() {
     let mut stream = TcpStream::connect("127.0.0.1:9000").unwrap();
 
-    let protocol = Protocol {len : 33,
-                        message_type : MessageType::Chat,
-                        group_id : 123123,
-                        body : "testestasdasdfasdf".to_string()};
-
-    let byte_vec = from_protocol(protocol);
-    stream.write(&byte_vec);
-    stream.flush();
+    let mut user_nickname = String::new();
+    
+    print!("채팅방에서 사용할 닉네임을 입력해주세요 : ");
+    io::stdout().flush();
+    io::stdin().read_line(&mut user_nickname);
+    
+    let child = thread::spawn(move|| {
+        loop {
+            // Write
+            let mut message = String::new();
+            print!("입력 : ");
+            io::stdout().flush();
+            io::stdin().read_line(&mut message);
+            
+            let protocol = Protocol {len : 33,
+                            message_type : MessageType::Chat,
+                            group_id : 123123,
+                            body : message.to_string()};
+    
+            let byte_vec = from_protocol(protocol);
+            stream.write(&byte_vec);
+            stream.flush();
+        }
+        
+        // Read
+        //let mut buffer : [u8; 1024  ] = [0; 1024];
+        //stream.read(&mut buffer); // ignore here too
+        //let prot = to_protocol(&buffer);
+        //println!("protocol : {:?}", prot);
+    });
+    
+    child.join();   
 }
