@@ -6,3 +6,4 @@ authors = ["Yoonsung <lvev9925@naver.com>"]
 [dependencies]
 bincode = "*"
 rustc-serialize = "*"
+rand = "*"
