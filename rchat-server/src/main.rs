@@ -50,16 +50,17 @@ use std::sync::{Arc, Mutex};
 extern crate rand;
 use rand::distributions::{IndependentSample, Range};
 
+const TEST_GLOBAL_GROUP_KEY : u64 = 123123123;
+
 #[derive(Debug)]
-struct Database<'a> {
-    //groups : Rc<RefCell<HashMap<u64, Group>>>
-    groups : &'a mut HashMap<u64, Group<'a>>
+struct Database {
+    groups : HashMap<u64, Group>
 }
 
 #[derive(Debug)]
-struct Group<'a> {
+struct Group {
     name : String,
-    users : &'a mut Vec<User>
+    users : Vec<User>
 }
 
 #[derive(Debug)]
@@ -91,26 +92,21 @@ fn generate_random_group_key() -> u64 {
 fn main() {
 
     //TODO use real db
-    //[START] only 1 group. it's code for extension
     
+    //Make Group
     let mut group_map : HashMap<u64, Group> = HashMap::new();
-    //let group_map : Rc<RefCell<HashMap<u64, Group>>> = Rc::new(RefCell::new(HashMap::new()));
-    //let mut database : MutexArc<Database> = MutexArc::new(Database { groups : group_map });
-    let mut database  : Database = Database { groups : &mut group_map };
-    let mut shared_database = Arc::new(database);
-    
-    
-    let global_group_key = generate_random_group_key();
-    /*
-    let mut group : Group = Group {
+    let group : Group = Group {
                             name : "rust_day".to_string(),
-                            users : &mut Vec::new()  
-                        };
-                        
-    shared_database.groups.insert(global_group_key, group);
-    //[END] only 1 group. it's code for extension
-    */
-
+                            users : Vec::<User>::new()  
+                    };
+                
+    //Add Initial Group    
+    group_map.insert(TEST_GLOBAL_GROUP_KEY, group); 
+    
+    //Database Setting
+    let database  : Database = Database { groups : group_map };                
+    let shared_database = Arc::new(database);
+    
     let listener = TcpListener::bind("127.0.0.1:9000").unwrap();
     
     loop {
@@ -120,9 +116,9 @@ fn main() {
                 Ok(stream) => {
                     let cloned_stream = stream.try_clone().unwrap();
                     let cloned_database = shared_database.clone();
-
-                    thread::spawn(move|| {
-                        execute(cloned_stream, cloned_database, &global_group_key.clone());
+                    
+                    thread::spawn(move|| {    
+                        execute(cloned_stream, cloned_database);
                     });    
                 },  
                 Err(e) => { /* connection failed */ }
@@ -134,25 +130,25 @@ fn main() {
     // drop(listener);
 }
 
-fn execute(mut stream : TcpStream, shared_database : Arc<Database>, global_group_key : &u64) {
+fn execute(mut stream : TcpStream, cloned_database : Arc<Database>) {
     //[START] TODO extract from db OR register to db
-
     let user = User {
             name : "test".to_string(),
             id : generate_random_user_key(),
             socket : stream.try_clone().unwrap(),
-            groups : vec![*global_group_key]
+            groups : vec![TEST_GLOBAL_GROUP_KEY]
     };    
     
-    //shared_database.groups.get(global_group_key).unwrap().users.push(user);
-    //let users = shared_database.groups.get(global_group_key).unwrap();
-    let users = shared_database.groups.get(global_group_key);
-    println!("database : {:?}", shared_database);
-    println!("users : {:?}", users);    
-
-    
+    let users = cloned_database.groups.get(&TEST_GLOBAL_GROUP_KEY);
+    //TODO DELETE Test
+    //println!("database : {:?}", cloned_database);
+    //println!("users : {:?}", users);    
     //[END]
     
+    create_stream_reader(stream, cloned_database.clone());
+}
+
+fn create_stream_reader(mut stream : TcpStream, cloned_database : Arc<Database>) {
     let reader = thread::spawn(move|| {
         loop {
             let mut buffer : [u8; 1024] = [0; 1024];
@@ -163,8 +159,8 @@ fn execute(mut stream : TcpStream, shared_database : Arc<Database>, global_group
             //println!("protocol : {:?}", prot);
             println!("채팅 : [  {:?}  ]\n", protocol.body);
             
-            //let group_users = shared_database.groups.get(&global_group_key).unwrap();
-            //println!("{:?}", group_users);
+            let group_users = cloned_database.groups.get(&TEST_GLOBAL_GROUP_KEY).unwrap();
+            println!("{:?}", group_users);
             
             // Test, Make Eco Server
             let byte_vec = from_protocol(protocol);
@@ -175,7 +171,6 @@ fn execute(mut stream : TcpStream, shared_database : Arc<Database>, global_group
     
     reader.join().unwrap();
 }
-
 
 // --------------------------------------------------------------------------------------- Client
 use std::io::prelude::*;
