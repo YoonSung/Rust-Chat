@@ -1,6 +1,7 @@
 // --------------------------------------------------------------------------------------- Common
 extern crate bincode;
 extern crate rustc_serialize;
+use std::io::{BufReader, BufWriter};
 
 #[derive(Debug, RustcEncodable, RustcDecodable)]
 enum MessageType {
@@ -51,10 +52,22 @@ extern crate rand;
 use rand::distributions::{IndependentSample, Range};
 
 const TEST_GLOBAL_GROUP_KEY : u64 = 123123123;
+const BUFFER_SIZE : usize = 1024;
 
 #[derive(Debug)]
 struct Database {
     groups : HashMap<u64, Group>
+}
+
+impl Database {
+
+    fn get_groups<'a> (&'a mut self) -> &'a mut HashMap<u64, Group> {
+        &mut self.groups
+    }
+  
+    fn add_user(&mut self, group_key : u64, user : User) {
+        self.groups.get_mut(&group_key).unwrap().add_user(user);
+    }
 }
 
 #[derive(Debug)]
@@ -63,12 +76,35 @@ struct Group {
     users : Vec<User>
 }
 
+impl Group {
+    /*
+    fn get_users(&self) -> &mut Vec<User> {
+        &mut self.users
+    }
+    */
+    
+    fn get_users(&self) -> &Vec<User> {
+        &self.users
+    }
+    
+    
+    fn add_user(&mut self, user : User) {
+        self.users.push(user);
+    }
+}
+
 #[derive(Debug)]
 struct User {
     name : String,
     id : u8,
     socket : TcpStream,
     groups : Vec<u64>
+}
+
+impl User {
+    fn get_socket(&self) -> &TcpStream {
+        &self.socket
+    }
 }
 
 /*
@@ -98,14 +134,14 @@ fn main() {
     let group : Group = Group {
                             name : "rust_day".to_string(),
                             users : Vec::<User>::new()  
-                    };
-                
+                        };
+    
     //Add Initial Group    
     group_map.insert(TEST_GLOBAL_GROUP_KEY, group); 
     
     //Database Setting
     let database  : Database = Database { groups : group_map };                
-    let shared_database = Arc::new(database);
+    let shared_database = Arc::new(Mutex::new(database));
     
     let listener = TcpListener::bind("127.0.0.1:9000").unwrap();
     
@@ -117,55 +153,93 @@ fn main() {
                     let cloned_stream = stream.try_clone().unwrap();
                     let cloned_database = shared_database.clone();
                     
-                    thread::spawn(move|| {    
+                    let request_thread = thread::spawn(move|| {    
                         execute(cloned_stream, cloned_database);
-                    });    
+                    });
+                    
+                    request_thread.join().unwrap();    
                 },  
                 Err(e) => { /* connection failed */ }
             }
         }
     }
         
-    // close the socket server
+    // close the socket server, but not working
     // drop(listener);
 }
 
-fn execute(mut stream : TcpStream, cloned_database : Arc<Database>) {
+fn execute(mut stream : TcpStream, cloned_database : Arc<Mutex<Database>>) {
     //[START] TODO extract from db OR register to db
-    let user = User {
-            name : "test".to_string(),
-            id : generate_random_user_key(),
-            socket : stream.try_clone().unwrap(),
-            groups : vec![TEST_GLOBAL_GROUP_KEY]
-    };    
+
+    // Mutex Lock
+    {
+        let mut database = cloned_database.lock().unwrap();
+        
+        database.add_user(TEST_GLOBAL_GROUP_KEY, User {
+                name : "test".to_string(),
+                id : generate_random_user_key(),
+                socket : stream.try_clone().unwrap(),
+                groups : vec![TEST_GLOBAL_GROUP_KEY]
+        });
+        
+        /*
+        let mut group = database.get_groups().get_mut(&TEST_GLOBAL_GROUP_KEY).unwrap();
+        group.add_user(User {
+                name : "test".to_string(),
+                id : generate_random_user_key(),
+                socket : stream.try_clone().unwrap(),
+                groups : vec![TEST_GLOBAL_GROUP_KEY]
+        });
+        */
+        
+        print!("add New user");
+    }
     
-    let users = cloned_database.groups.get(&TEST_GLOBAL_GROUP_KEY);
-    //TODO DELETE Test
+    
     //println!("database : {:?}", cloned_database);
     //println!("users : {:?}", users);    
-    //[END]
     
     create_stream_reader(stream, cloned_database.clone());
 }
 
-fn create_stream_reader(mut stream : TcpStream, cloned_database : Arc<Database>) {
-    let reader = thread::spawn(move|| {
-        loop {
-            let mut buffer : [u8; 1024] = [0; 1024];
-            stream.read(&mut buffer);
+fn create_stream_reader(mut stream : TcpStream, arc_database : Arc<Mutex<Database>>) {
 
+    let reader = thread::spawn(move|| {
+    
+        let mut buf_read_stream = BufReader::<TcpStream>::with_capacity(BUFFER_SIZE*8, stream.try_clone().unwrap());
+        let mut buf_write_stream = BufWriter::<TcpStream>::new(stream.try_clone().unwrap());
+        let cloned_database = arc_database.clone();        
+        loop {
+            let mut buffer : [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
+            
+            //Wait until data incoming    
+            buf_read_stream.read(&mut buffer);
             let protocol = to_protocol(&buffer);
             
             //println!("protocol : {:?}", prot);
             println!("채팅 : [  {:?}  ]\n", protocol.body);
+                
+            // [START] UnExpected Error
+            /*
+            let mut group_users = cloned_database.lock().unwrap().get_groups();
             
-            let group_users = cloned_database.groups.get(&TEST_GLOBAL_GROUP_KEY).unwrap();
+            for user in group_users.iter().enumerate() {
+                print!("{:?}", user);
+            }
             println!("{:?}", group_users);
+            */
+            // [END] UnExpected Error
             
-            // Test, Make Eco Server
-            let byte_vec = from_protocol(protocol);
-            stream.write(&byte_vec);
-            stream.flush();
+            //Mutex lock
+            {
+                for (index, user) in  cloned_database.lock().unwrap().get_groups().get_mut(&TEST_GLOBAL_GROUP_KEY).unwrap().get_users().iter().enumerate() {
+                    println!("User {:?}", user);
+                    let stream = user.get_socket();
+                    let mut buf_write_stream = BufWriter::<TcpStream>::new(stream.try_clone().unwrap());
+                    buf_write_stream.write(&buffer);
+                    //no need to flush execution
+                }
+            }
         }
     });
     
@@ -212,7 +286,7 @@ fn client() {
     let reader = thread::spawn(move|| {
         loop {
             // Read
-            let mut buffer : [u8; 1024  ] = [0; 1024];
+            let mut buffer : [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
             reader_stream.read(&mut buffer); // ignore here too
             let protocol = to_protocol(&buffer);
             
